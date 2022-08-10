@@ -4,12 +4,34 @@
 rm -f response
 mkfifo response
 
-function handleRequest() {
-    # 1) Process the request
-    # 2) Route request to the correct handler
-    # 3) Build a response based on the request
-    # 4) Send the response to the named pipe (FIFO)
+function handleHomeGet() {
+	RESPONSE=$(cat index.html | \
+		sed "s/{{$COOKIE_NAME}}/$COOKIE_VALUE/")
+}
 
+function handleLoginGet() {
+	RESPONSE=$(cat login.html)
+}
+
+function handleLogoutPost(){
+	 RESPONSE=$(cat post-logout.http | \
+    sed "s/{{cookie_name}}/$COOKIE_NAME/" | \
+    sed "s/{{cookie_value}}/$COOKIE_VALUE/")
+
+	 echo "logout response : $RESPONSE"
+}
+
+function handleLoginPost() {
+	RESPONSE=$(cat post-login.http | \
+		sed "s/{{cookie_name}}/$INPUT_NAME/" | \
+		sed "s/{{cookie_value}}/$INPUT_VALUE/")
+}
+
+function handleNotFound() {
+	RESPONSE=$(cat 404.html)
+}
+
+function handleRequest() {
 	while read line; do
 		echo $line
 		trline=`echo $line | tr -d '[\r\n]'`
@@ -18,18 +40,41 @@ function handleRequest() {
 		[ -z "$trline" ] && break
 
 		HEADLINE_REGEX='(.)(.).HTTP.*'
-		
 		[[ $trline =~ $HEADLINE_REGEX ]] &&
 			REQUEST=$(echo $trline | sed -E "s/$HEADLINE_REGEX/\1\2/")
+
+		CONTENT_LENGTH_REGEX='Content-Length:.(.*)'
+		[[ "$trline" =~ $CONTENT_LENGTH_REGEX ]] &&
+      CONTENT_LENGTH=`echo $trline | sed -E "s/$CONTENT_LENGTH_REGEX/\1/"`
+
+		COOKIE_REGEX='Cookie:(.*)\=(.*).*'
+    [[ "$trline" =~ $COOKIE_REGEX ]] &&
+      read COOKIE_NAME COOKIE_VALUE <<< $(echo $trline | sed -E "s/$COOKIE_REGEX/\1 \2/")
 	done
 
+	echo "content length: $CONTENT_LENGTH"
+	echo "RES Cookie: $COOKIE_NAME=$COOKIE_VALUE"
+
+	## Check if Content-Length is not empty
+	if [ ! -z "$CONTENT_LENGTH" ]; then
+		BODY_REGEX='(.*)=(.*)'
+
+		## Read the remaining request body
+		while read -n$CONTENT_LENGTH -t1 body; do
+			echo $body
+
+			INPUT_NAME=$(echo $body | sed -E "s/$BODY_REGEX/\1/")
+			INPUT_VALUE=$(echo $body | sed -E "s/$BODY_REGEX/\2/")
+		done
+	fi
+
 	case $REQUEST in
-		"GET /index.html") RESPONSE="HTTP/1.1 200 OK\nContent-Type: text/html\n\n<html><body><h1>Hello World</h1></body></html>" 
-			;;
-		"GET /login") RESPONSE=$(cat login.html)
-			;;
-		*) RESPONSE=$(cat 404.html)
-			;;
+		"GET /") handleHomeGet ;;
+		"GET /index.html") handleIndexGet ;;
+		"GET /login") handleLoginGet ;;
+		"POST /login") handleLoginPost ;;
+		"POST /logout") handleLogoutPost ;;
+		*) handleNotFound ;;
 	esac
 
 	echo -e $RESPONSE > response

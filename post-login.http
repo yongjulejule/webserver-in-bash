@@ -1,0 +1,2 @@
+HTTP/1.1 301\nLocation: http://localhost:3000/\nSet-Cookie: {{cookie_name}}={{cookie_value}}; path=/; HttpOnly; Expires=Thu, 11 Aug 2022 00:00:00 GMT; Secure;\n\n
+
